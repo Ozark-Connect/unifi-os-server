@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: unifi-os-server
-          image: ghcr.io/lemker/unifi-os-server:latest
+          image: ghcr.io/ozark-connect/unifi-os-server:latest
           env:
             - name: HOST_IP
               valueFrom:

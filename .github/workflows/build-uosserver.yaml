@@ -30,11 +30,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Lowercase repository owner
+        id: owner
+        run: echo "lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
       - name: Merge and push manifest
         uses: int128/docker-manifest-create-action@126c2b2195800ebc112cffe9ad6c2e2cce16eff2 # v2.22.0
         with:
           tags: |
-            ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}-multiarch
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.lc }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}-multiarch
           sources: |
-            ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}-linux-amd64
-            ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}-linux-arm64
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.lc }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}-linux-amd64
+            ${{ env.REGISTRY }}/${{ steps.owner.outputs.lc }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}-linux-arm64

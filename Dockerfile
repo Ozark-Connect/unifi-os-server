@@ -1,6 +1,6 @@
 FROM ghcr.io/lemker/uosserver:02cb044f5ed2-multiarch
 
-LABEL org.opencontainers.image.source="https://github.com/lemker/unifi-os-server"
+LABEL org.opencontainers.image.source="https://github.com/Ozark-Connect/unifi-os-server"
 
 ENV container="docker"
 ENV APP_VERSION="5.1.19"
