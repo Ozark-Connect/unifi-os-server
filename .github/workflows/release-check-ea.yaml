@@ -89,6 +89,15 @@ jobs:
             fi
           fi
 
+          # Skip if this EA version is already released (tag exists). This is
+          # the definitive signal and also covers releases cut manually rather
+          # than through the PR flow below.
+          if git ls-remote --exit-code --tags origin "refs/tags/${UOS_VERSION}-ea" >/dev/null 2>&1; then
+            echo "Tag ${UOS_VERSION}-ea already exists!"
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Skip if we already have a PR (any state) for this EA version
           pr_count=$(gh pr list \
             --repo "${GITHUB_REPOSITORY}" \
