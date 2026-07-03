@@ -66,24 +66,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Check if pull request already exists
+      - name: Check if release already exists
         id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          pr_count=$(gh pr list \
-            --repo "${GITHUB_REPOSITORY}" \
-            --head "updates-unifi-core-${{ env.UOS_VERSION }}" \
-            --state all \
-            --json number \
-            --jq 'length')
-          if [ "${pr_count}" -gt 0 ]; then
-            echo "APP_VERSION ${{ env.UOS_VERSION }} already exists!"
+          # A draft release does not create its git tag until published, so
+          # check for the release object itself (drafts included) rather than
+          # the tag -- otherwise we would rebuild and re-draft it every hour.
+          if gh release view "${UOS_VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${UOS_VERSION} already exists!"
             echo "released=true" >> "$GITHUB_OUTPUT"
           else
-            echo "APP_VERSION ${{ env.UOS_VERSION }} does not exist!"
+            echo "Release ${UOS_VERSION} does not exist!"
             echo "released=false" >> "$GITHUB_OUTPUT"
           fi
         
@@ -108,7 +105,7 @@ jobs:
     with:
       tag: ${{ needs.extract-linux-amd64.outputs.PODMAN_IMAGE_TAG }}
 
-  create-pr:
+  draft-release:
     runs-on: ubuntu-24.04
     needs: [release-check, extract-linux-amd64, extract-linux-arm64, build-uosserver]
     if: "${{ needs.release-check.outputs.RELEASED == 'false' }}"
@@ -117,26 +114,36 @@ jobs:
     env:
       UOS_VERSION: ${{ needs.release-check.outputs.UOS_VERSION }}
       PODMAN_IMAGE_TAG: ${{ needs.extract-linux-amd64.outputs.PODMAN_IMAGE_TAG }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: main
+          fetch-depth: 0
 
-      - name: Update Dockerfile
+      - name: Update Dockerfile and push bump
         run: |
+          set -euo pipefail
           sed -i "s/uosserver:.*/uosserver:$PODMAN_IMAGE_TAG-multiarch/" Dockerfile
           sed -i "s/APP_VERSION=.*/APP_VERSION=\"$UOS_VERSION\"/" Dockerfile
-      
-      - name: Create pull request
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Update UniFi OS Server to ${{ env.UOS_VERSION }}"
-          committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
-          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
-          branch: updates-unifi-core-${{ env.UOS_VERSION }}
-          base: main
-          title: "Update UniFi OS Server to ${{ env.UOS_VERSION }}"
-          body: |
-            Bump uosserver image to `${{ env.PODMAN_IMAGE_TAG }}`
-            Bump UniFi OS Server to `${{ env.UOS_VERSION }}`
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Dockerfile
+          git commit -m "Update UniFi OS Server to $UOS_VERSION"
+          # Rebase onto any concurrent main updates before pushing.
+          git pull --rebase origin main
+          git push origin main
+          echo "BUMP_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Create draft release
+        run: |
+          set -euo pipefail
+          gh release create "$UOS_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$BUMP_SHA" \
+            --draft \
+            --latest \
+            --title "UniFi OS Server $UOS_VERSION" \
+            --notes "UniFi OS Server $UOS_VERSION as a multi-arch Docker image (linux/amd64 + linux/arm64). Pull ghcr.io/ozark-connect/unifi-os-server:$UOS_VERSION or :latest. Base image: $PODMAN_IMAGE_TAG-multiarch. Review and click Publish to build and push the image."
