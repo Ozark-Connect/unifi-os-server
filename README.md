@@ -5,11 +5,28 @@
 
 Run [UniFi OS Server](https://blog.ui.com/article/introducing-unifi-os-server) directly in Docker or Kubernetes.
 
+> **This is the [Ozark-Connect](https://github.com/Ozark-Connect) community fork** of [`lemker/unifi-os-server`](https://github.com/lemker/unifi-os-server), maintained to stay current with Ubiquiti's releases — **including Early Access (EA) builds** — with image tags kept in lockstep with the official UniFi OS Server versions. New stable and EA versions are picked up automatically from Ubiquiti's firmware API.
+
 > The **UniFi OS Server is the new standard for self-hosting UniFi**, replacing the legacy UniFi Network Server. While the Network Server provided basic hosting functionality, it lacked support for key UniFi OS features like Organizations, IdP Integration, or Site Magic SD-WAN. With a fully unified operating system, UniFi OS Server now delivers the same management experience as UniFi-native–including CloudKeys, Cloud Gateways, and Official UniFi Hosting–and is fully compatible with Site Manager for centralized, multi-site control.
 >
 > <https://help.ui.com/hc/en-us/articles/34210126298775-Self-Hosting-UniFi>
 
 # Installation
+
+## Image Tags
+
+Tags match the official UniFi OS Server version exactly — no separate scheme:
+
+| Tag | Channel | Notes |
+|----|----|----|
+| `latest` · `X.Y.Z` · `X.Y` · `X` | Stable | Newest stable release |
+| `X.Y.Z-ea` | Early Access | Pre-release; never tagged `latest` |
+| `X.Y.Z-N` | Fork patch | An Ozark-Connect fix on top of UniFi `X.Y.Z` |
+
+```bash
+docker pull ghcr.io/ozark-connect/unifi-os-server:latest      # newest stable
+docker pull ghcr.io/ozark-connect/unifi-os-server:5.1.21-ea   # a specific EA build
+```
 
 ## Docker Compose
 
