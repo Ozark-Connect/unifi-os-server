@@ -20,6 +20,7 @@ jobs:
       UOS_VERSION: ${{ steps.version.outputs.UOS_VERSION }}
       UOS_DOWNLOAD_AMD64: ${{ steps.version.outputs.UOS_DOWNLOAD_AMD64 }}
       UOS_DOWNLOAD_ARM64: ${{ steps.version.outputs.UOS_DOWNLOAD_ARM64 }}
+      HAS_EA: ${{ steps.version.outputs.HAS_EA }}
       RELEASED: ${{ steps.release.outputs.released }}
 
     steps:
@@ -36,11 +37,17 @@ jobs:
       - name: Extract version and download url for ea
         id: version
         run: |
-          # Check that there are EA firmware entries
+          # Ubiquiti's EA channel is frequently empty -- EA builds are
+          # ephemeral and get pulled once superseded by a stable release.
+          # An empty EA channel is a normal "nothing to do" state, NOT an
+          # error, so skip gracefully instead of failing the run (which
+          # would email a failure notice every hour).
           if [ "$(jq '._embedded.firmware | length' linux-amd64.json)" -eq 0 ]; then
-            echo "No EA firmware entries found" >&2
-            exit 1
+            echo "No active EA build published by Ubiquiti; nothing to do."
+            echo "HAS_EA=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo "HAS_EA=true" >> "$GITHUB_OUTPUT"
 
           UOS_VERSION=$(jq -r '._embedded.firmware[0].version // empty' linux-amd64.json | sed 's/^v//')
           UOS_DOWNLOAD_AMD64=$(jq -r '._embedded.firmware[0]._links.data.href // empty' linux-amd64.json)
@@ -72,6 +79,7 @@ jobs:
 
       - name: Decide whether to build
         id: release
+        if: steps.version.outputs.HAS_EA == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
