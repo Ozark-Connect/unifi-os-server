@@ -1,9 +1,9 @@
-name: Check for new releases
+name: Check for new EA releases
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "27 * * * *"
+    - cron: "47 * * * *"
 
 # The Ozark-Connect org enforces a read-only default GITHUB_TOKEN, so grant
 # the scopes the reusable extract/build jobs and the PR-creating job need.
@@ -21,72 +21,89 @@ jobs:
       UOS_DOWNLOAD_AMD64: ${{ steps.version.outputs.UOS_DOWNLOAD_AMD64 }}
       UOS_DOWNLOAD_ARM64: ${{ steps.version.outputs.UOS_DOWNLOAD_ARM64 }}
       RELEASED: ${{ steps.release.outputs.released }}
-  
+
     steps:
-      - name: Get latest version
+      - name: Get latest EA and release versions
         run: |
-          curl -sX GET "https://fw-update.ubnt.com/api/firmware-latest?filter=eq~~product~~unifi-os-server&filter=eq~~platform~~linux-x64&filter=eq~~channel~~release" > linux-amd64.json
-          curl -sX GET "https://fw-update.ubnt.com/api/firmware-latest?filter=eq~~product~~unifi-os-server&filter=eq~~platform~~linux-arm64&filter=eq~~channel~~release" > linux-arm64.json
+          base="https://fw-update.ubnt.com/api/firmware-latest?filter=eq~~product~~unifi-os-server"
+          curl -sX GET "${base}&filter=eq~~platform~~linux-x64&filter=eq~~channel~~ea" > linux-amd64.json
+          curl -sX GET "${base}&filter=eq~~platform~~linux-arm64&filter=eq~~channel~~ea" > linux-arm64.json
+          curl -sX GET "${base}&filter=eq~~platform~~linux-x64&filter=eq~~channel~~release" > linux-amd64-release.json
           jq empty linux-amd64.json
           jq empty linux-arm64.json
-      
-      - name: Extract version and download url for amd64
+          jq empty linux-amd64-release.json
+
+      - name: Extract version and download url for ea
         id: version
         run: |
-          # Check that there are firmware entries
+          # Check that there are EA firmware entries
           if [ "$(jq '._embedded.firmware | length' linux-amd64.json)" -eq 0 ]; then
-            echo "No firmware entries found" >&2
+            echo "No EA firmware entries found" >&2
             exit 1
           fi
-          
+
           UOS_VERSION=$(jq -r '._embedded.firmware[0].version // empty' linux-amd64.json | sed 's/^v//')
           UOS_DOWNLOAD_AMD64=$(jq -r '._embedded.firmware[0]._links.data.href // empty' linux-amd64.json)
           UOS_DOWNLOAD_ARM64=$(jq -r '._embedded.firmware[0]._links.data.href // empty' linux-arm64.json)
+          REL_VERSION=$(jq -r '._embedded.firmware[0].version // empty' linux-amd64-release.json | sed 's/^v//')
 
           if [ -z "$UOS_VERSION" ] || [ -z "$UOS_DOWNLOAD_AMD64" ] || [ -z "$UOS_DOWNLOAD_ARM64" ]; then
             echo "Missing version or download URL in JSON" >&2
             exit 1
           fi
-          
+
           # Export to env
           echo "UOS_VERSION=$UOS_VERSION" >> "$GITHUB_ENV"
           echo "UOS_DOWNLOAD_AMD64=$UOS_DOWNLOAD_AMD64" >> "$GITHUB_ENV"
           echo "UOS_DOWNLOAD_ARM64=$UOS_DOWNLOAD_ARM64" >> "$GITHUB_ENV"
+          echo "REL_VERSION=$REL_VERSION" >> "$GITHUB_ENV"
 
           # Export to outputs
-          echo "UOS_VERSION=$UOS_VERSION" >> $GITHUB_OUTPUT
-          echo "UOS_DOWNLOAD_AMD64=$UOS_DOWNLOAD_AMD64" >> $GITHUB_OUTPUT
-          echo "UOS_DOWNLOAD_ARM64=$UOS_DOWNLOAD_ARM64" >> $GITHUB_OUTPUT
+          echo "UOS_VERSION=$UOS_VERSION" >> "$GITHUB_OUTPUT"
+          echo "UOS_DOWNLOAD_AMD64=$UOS_DOWNLOAD_AMD64" >> "$GITHUB_OUTPUT"
+          echo "UOS_DOWNLOAD_ARM64=$UOS_DOWNLOAD_ARM64" >> "$GITHUB_OUTPUT"
 
           # Print variables
-          echo "UOS_VERSION=$UOS_VERSION"
-          echo "UOS_DOWNLOAD_AMD64=$UOS_DOWNLOAD_AMD64"
-          echo "UOS_DOWNLOAD_ARM64=$UOS_DOWNLOAD_ARM64"
+          echo "EA UOS_VERSION=$UOS_VERSION"
+          echo "Current stable REL_VERSION=$REL_VERSION"
 
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Check if pull request already exists
+      - name: Decide whether to build
         id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
+          # Only build EA when it is strictly newer than the current stable
+          # release, otherwise we would publish a pointless X.Y.Z-ea pre-release
+          # of a version that is already (or about to be) stable.
+          if [ -n "${REL_VERSION}" ]; then
+            newest=$(printf '%s\n%s\n' "${UOS_VERSION}" "${REL_VERSION}" | sort -V | tail -1)
+            if [ "${UOS_VERSION}" = "${REL_VERSION}" ] || [ "${newest}" != "${UOS_VERSION}" ]; then
+              echo "EA ${UOS_VERSION} is not newer than stable ${REL_VERSION}; nothing to do."
+              echo "released=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # Skip if we already have a PR (any state) for this EA version
           pr_count=$(gh pr list \
             --repo "${GITHUB_REPOSITORY}" \
-            --head "updates-unifi-core-${{ env.UOS_VERSION }}" \
+            --head "updates-unifi-core-${UOS_VERSION}-ea" \
             --state all \
             --json number \
             --jq 'length')
           if [ "${pr_count}" -gt 0 ]; then
-            echo "APP_VERSION ${{ env.UOS_VERSION }} already exists!"
+            echo "EA ${UOS_VERSION} already has a pull request!"
             echo "released=true" >> "$GITHUB_OUTPUT"
           else
-            echo "APP_VERSION ${{ env.UOS_VERSION }} does not exist!"
+            echo "EA ${UOS_VERSION} is new!"
             echo "released=false" >> "$GITHUB_OUTPUT"
           fi
-        
+
   extract-linux-amd64:
     needs: release-check
     if: "${{ needs.release-check.outputs.RELEASED == 'false' }}"
@@ -124,19 +141,24 @@ jobs:
 
       - name: Update Dockerfile
         run: |
+          # APP_VERSION stays the clean Ubiquiti version (5.1.21); the "-ea"
+          # suffix lives only on the git tag / GitHub release / image tag.
           sed -i "s/uosserver:.*/uosserver:$PODMAN_IMAGE_TAG-multiarch/" Dockerfile
           sed -i "s/APP_VERSION=.*/APP_VERSION=\"$UOS_VERSION\"/" Dockerfile
-      
+
       - name: Create pull request
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Update UniFi OS Server to ${{ env.UOS_VERSION }}"
+          commit-message: "Update UniFi OS Server to ${{ env.UOS_VERSION }} (EA)"
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
-          branch: updates-unifi-core-${{ env.UOS_VERSION }}
+          branch: updates-unifi-core-${{ env.UOS_VERSION }}-ea
           base: main
-          title: "Update UniFi OS Server to ${{ env.UOS_VERSION }}"
+          title: "Update UniFi OS Server to ${{ env.UOS_VERSION }} (EA)"
           body: |
             Bump uosserver image to `${{ env.PODMAN_IMAGE_TAG }}`
-            Bump UniFi OS Server to `${{ env.UOS_VERSION }}`
+            Bump UniFi OS Server to `${{ env.UOS_VERSION }}` (EA / early access)
+
+            When cutting the release, tag it `${{ env.UOS_VERSION }}-ea` and mark the
+            GitHub release as a **pre-release** so `latest` is not moved to an EA build.
