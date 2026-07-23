@@ -1,6 +1,10 @@
 name: Build and push unifi-os-server image
 
 on:
+  # Dispatched on the release tag by release-check(-ea): a release created
+  # with GITHUB_TOKEN does not fire the release:published trigger (GitHub
+  # recursion prevention), so the check workflows invoke this directly.
+  workflow_dispatch:
   release:
     types: [published]
   push:

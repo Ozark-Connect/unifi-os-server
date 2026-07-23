@@ -6,11 +6,12 @@ on:
     - cron: "27 * * * *"
 
 # The Ozark-Connect org enforces a read-only default GITHUB_TOKEN, so grant
-# the scopes the reusable extract/build jobs and the PR-creating job need.
+# the scopes the reusable extract/build jobs and the release job need.
+# actions:write lets the release job dispatch build-image on the new tag.
 permissions:
   contents: write
   packages: write
-  pull-requests: write
+  actions: write
 
 jobs:
   release-check:
@@ -73,9 +74,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # A draft release does not create its git tag until published, so
-          # check for the release object itself (drafts included) rather than
-          # the tag -- otherwise we would rebuild and re-draft it every hour.
+          # Check for the release object itself (drafts included, in case a
+          # manual draft exists) so we never rebuild a version twice.
           if gh release view "${UOS_VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             echo "Release ${UOS_VERSION} already exists!"
             echo "released=true" >> "$GITHUB_OUTPUT"
@@ -105,7 +105,7 @@ jobs:
     with:
       tag: ${{ needs.extract-linux-amd64.outputs.PODMAN_IMAGE_TAG }}
 
-  draft-release:
+  publish-release:
     runs-on: ubuntu-24.04
     needs: [release-check, extract-linux-amd64, extract-linux-arm64, build-uosserver]
     if: "${{ needs.release-check.outputs.RELEASED == 'false' }}"
@@ -137,13 +137,23 @@ jobs:
           git push origin main
           echo "BUMP_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Create draft release
+      - name: Create release
         run: |
           set -euo pipefail
           gh release create "$UOS_VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$BUMP_SHA" \
-            --draft \
             --latest \
             --title "UniFi OS Server $UOS_VERSION" \
-            --notes "UniFi OS Server $UOS_VERSION as a multi-arch Docker image (linux/amd64 + linux/arm64). Pull ghcr.io/ozark-connect/unifi-os-server:$UOS_VERSION or :latest. Base image: $PODMAN_IMAGE_TAG-multiarch. Review and click Publish to build and push the image."
+            --notes "UniFi OS Server $UOS_VERSION as a multi-arch Docker image (linux/amd64 + linux/arm64). Pull ghcr.io/ozark-connect/unifi-os-server:$UOS_VERSION or :latest. Base image: $PODMAN_IMAGE_TAG-multiarch."
+
+      - name: Trigger image build
+        run: |
+          # A release created with GITHUB_TOKEN does not fire this repo's
+          # release:published trigger (GitHub recursion prevention), so
+          # dispatch build-image directly on the new tag. workflow_dispatch
+          # is exempt from that rule.
+          set -euo pipefail
+          gh workflow run build-image.yaml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "refs/tags/$UOS_VERSION"
