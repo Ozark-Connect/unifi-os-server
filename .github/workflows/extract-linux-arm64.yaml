@@ -73,14 +73,25 @@ jobs:
       # The install step cannot fail the job (the installer exits non-zero even
       # on success, as it cannot start systemd units on a runner), so check the
       # result explicitly and report it where it happens.
+      # The install step cannot fail the job -- the installer exits non-zero
+      # even on success, since it cannot start systemd units on a runner. Check
+      # the real outcome instead, so a failed install is reported here rather
+      # than surfacing two steps later as
+      # "cp: cannot stat .../containers/storage/overlay/.".
+      # Note the sudo: /home/uosserver is mode 700, so a bare test as the
+      # runner user returns false even when the storage is present.
       - name: Verify install produced container storage
         run: |
           set -euo pipefail
-          if [ ! -d /home/uosserver/.local/share/containers/storage ]; then
+          src=/home/uosserver/.local/share/containers/storage
+          if ! sudo test -d "$src/overlay-images"; then
             echo "Install did not produce container storage." >&2
             echo "See the 'Install UniFi OS Server' step above for the real error." >&2
+            sudo ls -la "$src" 2>&1 | head -15 >&2 || true
             exit 1
           fi
+          echo "Container storage present:"
+          sudo ls -1 "$src"
 
       - name: Get uosserver image for runner
         run: |
