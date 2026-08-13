@@ -2,6 +2,19 @@ name: Check for new EA releases
 
 on:
   workflow_dispatch:
+    inputs:
+      UOS_VERSION:
+        description: "Version to publish, e.g. 5.1.24. Leave blank to auto-detect from the API."
+        required: false
+        type: string
+      UOS_DOWNLOAD_AMD64:
+        description: "linux-x64 download URL (required when UOS_VERSION is set)"
+        required: false
+        type: string
+      UOS_DOWNLOAD_ARM64:
+        description: "linux-arm64 download URL (required when UOS_VERSION is set)"
+        required: false
+        type: string
   schedule:
     - cron: "47 * * * *"
 
@@ -48,8 +61,42 @@ jobs:
 
       - name: Extract version and download url for ea
         id: version
+        env:
+          # Passed via env, never interpolated into the script body, so a
+          # dispatch input cannot inject shell.
+          MANUAL_VERSION: ${{ inputs.UOS_VERSION }}
+          MANUAL_AMD64: ${{ inputs.UOS_DOWNLOAD_AMD64 }}
+          MANUAL_ARM64: ${{ inputs.UOS_DOWNLOAD_ARM64 }}
         run: |
           set -euo pipefail
+
+          # Ubiquiti does not index every EA build in the firmware API -- some
+          # are handed out as direct fw-download.ubnt.com links through the EA
+          # programme. Allow a manual dispatch to supply the version and URLs
+          # so those can still be published.
+          if [ -n "${MANUAL_VERSION:-}" ]; then
+            if [ -z "${MANUAL_AMD64:-}" ] || [ -z "${MANUAL_ARM64:-}" ]; then
+              echo "UOS_VERSION was supplied but one or both download URLs are missing." >&2
+              exit 1
+            fi
+            UOS_VERSION="${MANUAL_VERSION#v}"
+            UOS_DOWNLOAD_AMD64="${MANUAL_AMD64}"
+            UOS_DOWNLOAD_ARM64="${MANUAL_ARM64}"
+            echo "Manual override: publishing ${UOS_VERSION}"
+            echo "Manual override: publishing \`${UOS_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "HAS_EA=true" >> "$GITHUB_OUTPUT"
+            echo "MANUAL=true" >> "$GITHUB_OUTPUT"
+
+            echo "UOS_VERSION=$UOS_VERSION" >> "$GITHUB_ENV"
+            echo "UOS_DOWNLOAD_AMD64=$UOS_DOWNLOAD_AMD64" >> "$GITHUB_ENV"
+            echo "UOS_DOWNLOAD_ARM64=$UOS_DOWNLOAD_ARM64" >> "$GITHUB_ENV"
+            echo "REL_VERSION=" >> "$GITHUB_ENV"
+
+            echo "UOS_VERSION=$UOS_VERSION" >> "$GITHUB_OUTPUT"
+            echo "UOS_DOWNLOAD_AMD64=$UOS_DOWNLOAD_AMD64" >> "$GITHUB_OUTPUT"
+            echo "UOS_DOWNLOAD_ARM64=$UOS_DOWNLOAD_ARM64" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           # Pick the newest pre-release that publishes BOTH architectures --
           # a multi-arch image needs amd64 and arm64 at the same version.
