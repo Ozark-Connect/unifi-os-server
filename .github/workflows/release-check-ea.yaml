@@ -2,6 +2,19 @@ name: Check for new EA releases
 
 on:
   workflow_dispatch:
+    inputs:
+      UOS_VERSION:
+        description: "Version to publish, e.g. 5.1.24. Leave blank to auto-detect from the API."
+        required: false
+        type: string
+      UOS_DOWNLOAD_AMD64:
+        description: "linux-x64 download URL (required when UOS_VERSION is set)"
+        required: false
+        type: string
+      UOS_DOWNLOAD_ARM64:
+        description: "linux-arm64 download URL (required when UOS_VERSION is set)"
+        required: false
+        type: string
   schedule:
     - cron: "47 * * * *"
 
@@ -17,6 +30,10 @@ jobs:
   release-check:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      # Pre-release channels to check, newest-wins. "ea" is kept only as a
+      # fallback in case Ubiquiti restores it; it currently matches nothing.
+      PRERELEASE_CHANNELS: "beta-public ea"
     outputs:
       UOS_VERSION: ${{ steps.version.outputs.UOS_VERSION }}
       UOS_DOWNLOAD_AMD64: ${{ steps.version.outputs.UOS_DOWNLOAD_AMD64 }}
@@ -25,40 +42,103 @@ jobs:
       RELEASED: ${{ steps.release.outputs.released }}
 
     steps:
-      - name: Get latest EA and release versions
+      - name: Get latest pre-release and release versions
         run: |
+          set -euo pipefail
           base="https://fw-update.ubnt.com/api/firmware-latest?filter=eq~~product~~unifi-os-server"
-          curl -sX GET "${base}&filter=eq~~platform~~linux-x64&filter=eq~~channel~~ea" > linux-amd64.json
-          curl -sX GET "${base}&filter=eq~~platform~~linux-arm64&filter=eq~~channel~~ea" > linux-arm64.json
+          # Ubiquiti retired the "ea" channel name -- it now returns zero rows
+          # for every product, so filtering on it silently matches nothing
+          # forever. Public pre-release builds live under "beta-public".
+          # Query both so this keeps working if the name changes again.
+          for ch in $PRERELEASE_CHANNELS; do
+            curl -sX GET "${base}&filter=eq~~platform~~linux-x64&filter=eq~~channel~~${ch}"   > "amd64-${ch}.json"
+            curl -sX GET "${base}&filter=eq~~platform~~linux-arm64&filter=eq~~channel~~${ch}" > "arm64-${ch}.json"
+            jq empty "amd64-${ch}.json"
+            jq empty "arm64-${ch}.json"
+          done
           curl -sX GET "${base}&filter=eq~~platform~~linux-x64&filter=eq~~channel~~release" > linux-amd64-release.json
-          jq empty linux-amd64.json
-          jq empty linux-arm64.json
           jq empty linux-amd64-release.json
 
       - name: Extract version and download url for ea
         id: version
+        env:
+          # Passed via env, never interpolated into the script body, so a
+          # dispatch input cannot inject shell.
+          MANUAL_VERSION: ${{ inputs.UOS_VERSION }}
+          MANUAL_AMD64: ${{ inputs.UOS_DOWNLOAD_AMD64 }}
+          MANUAL_ARM64: ${{ inputs.UOS_DOWNLOAD_ARM64 }}
         run: |
-          # Ubiquiti's EA channel is frequently empty -- EA builds are
-          # ephemeral and get pulled once superseded by a stable release.
-          # An empty EA channel is a normal "nothing to do" state, NOT an
-          # error, so skip gracefully instead of failing the run (which
-          # would email a failure notice every hour).
-          if [ "$(jq '._embedded.firmware | length' linux-amd64.json)" -eq 0 ]; then
-            echo "No active EA build published by Ubiquiti; nothing to do."
+          set -euo pipefail
+
+          # Ubiquiti does not index every EA build in the firmware API -- some
+          # are handed out as direct fw-download.ubnt.com links through the EA
+          # programme. Allow a manual dispatch to supply the version and URLs
+          # so those can still be published.
+          if [ -n "${MANUAL_VERSION:-}" ]; then
+            if [ -z "${MANUAL_AMD64:-}" ] || [ -z "${MANUAL_ARM64:-}" ]; then
+              echo "UOS_VERSION was supplied but one or both download URLs are missing." >&2
+              exit 1
+            fi
+            UOS_VERSION="${MANUAL_VERSION#v}"
+            UOS_DOWNLOAD_AMD64="${MANUAL_AMD64}"
+            UOS_DOWNLOAD_ARM64="${MANUAL_ARM64}"
+            echo "Manual override: publishing ${UOS_VERSION}"
+            echo "Manual override: publishing \`${UOS_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "HAS_EA=true" >> "$GITHUB_OUTPUT"
+            echo "MANUAL=true" >> "$GITHUB_OUTPUT"
+
+            echo "UOS_VERSION=$UOS_VERSION" >> "$GITHUB_ENV"
+            echo "UOS_DOWNLOAD_AMD64=$UOS_DOWNLOAD_AMD64" >> "$GITHUB_ENV"
+            echo "UOS_DOWNLOAD_ARM64=$UOS_DOWNLOAD_ARM64" >> "$GITHUB_ENV"
+            echo "REL_VERSION=" >> "$GITHUB_ENV"
+
+            echo "UOS_VERSION=$UOS_VERSION" >> "$GITHUB_OUTPUT"
+            echo "UOS_DOWNLOAD_AMD64=$UOS_DOWNLOAD_AMD64" >> "$GITHUB_OUTPUT"
+            echo "UOS_DOWNLOAD_ARM64=$UOS_DOWNLOAD_ARM64" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Pick the newest pre-release that publishes BOTH architectures --
+          # a multi-arch image needs amd64 and arm64 at the same version.
+          UOS_VERSION=""
+          UOS_DOWNLOAD_AMD64=""
+          UOS_DOWNLOAD_ARM64=""
+          for ch in $PRERELEASE_CHANNELS; do
+            ver=$(jq -r '._embedded.firmware[0].version // empty' "amd64-${ch}.json" | sed 's/^v//')
+            amd=$(jq -r '._embedded.firmware[0]._links.data.href // empty' "amd64-${ch}.json")
+            arm_ver=$(jq -r '._embedded.firmware[0].version // empty' "arm64-${ch}.json" | sed 's/^v//')
+            arm=$(jq -r '._embedded.firmware[0]._links.data.href // empty' "arm64-${ch}.json")
+
+            if [ -z "$ver" ] || [ -z "$amd" ] || [ -z "$arm" ]; then
+              echo "Channel ${ch}: no complete pre-release build."
+              continue
+            fi
+            if [ "$ver" != "$arm_ver" ]; then
+              echo "Channel ${ch}: amd64 is ${ver} but arm64 is ${arm_ver:-none}; skipping."
+              continue
+            fi
+            echo "Channel ${ch}: found ${ver}."
+            if [ -z "$UOS_VERSION" ] || \
+               [ "$(printf '%s\n%s\n' "$UOS_VERSION" "$ver" | sort -V | tail -1)" = "$ver" ]; then
+              UOS_VERSION="$ver"
+              UOS_DOWNLOAD_AMD64="$amd"
+              UOS_DOWNLOAD_ARM64="$arm"
+            fi
+          done
+
+          # No pre-release published is a normal "nothing to do" state, NOT an
+          # error, so skip gracefully instead of failing the run (which would
+          # email a failure notice every hour). Record it in the run summary so
+          # a permanently-empty result stays visible rather than silently green.
+          if [ -z "$UOS_VERSION" ]; then
+            echo "No active pre-release build published by Ubiquiti; nothing to do."
+            echo "No pre-release found in channels: ${PRERELEASE_CHANNELS}" >> "$GITHUB_STEP_SUMMARY"
             echo "HAS_EA=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "HAS_EA=true" >> "$GITHUB_OUTPUT"
 
-          UOS_VERSION=$(jq -r '._embedded.firmware[0].version // empty' linux-amd64.json | sed 's/^v//')
-          UOS_DOWNLOAD_AMD64=$(jq -r '._embedded.firmware[0]._links.data.href // empty' linux-amd64.json)
-          UOS_DOWNLOAD_ARM64=$(jq -r '._embedded.firmware[0]._links.data.href // empty' linux-arm64.json)
           REL_VERSION=$(jq -r '._embedded.firmware[0].version // empty' linux-amd64-release.json | sed 's/^v//')
-
-          if [ -z "$UOS_VERSION" ] || [ -z "$UOS_DOWNLOAD_AMD64" ] || [ -z "$UOS_DOWNLOAD_ARM64" ]; then
-            echo "Missing version or download URL in JSON" >&2
-            exit 1
-          fi
 
           # Export to env
           echo "UOS_VERSION=$UOS_VERSION" >> "$GITHUB_ENV"
