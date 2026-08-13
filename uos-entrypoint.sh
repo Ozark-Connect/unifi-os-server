@@ -36,6 +36,14 @@ echo "$APP_MODEL.0000000.$APP_VERSION.0000000.000000.0000" > /usr/lib/version
 echo "$FIRMWARE_PLATFORM" > /usr/lib/platform
 echo "$PRODUCT_NAME" > /usr/lib/product_name
 
+# 5.1.34 added /usr/lib/app_model. /sbin/ubnt-tools reads it to look up
+# board.sysid (UOSSERVER -> 0xae01) and board.shortname; unifi-core then asks
+# ubnt-tools for the console model. Without this file the lookup yields an
+# empty model and unifi-core dies with `Unsupported console model: ""`, so it
+# never writes the nginx site config and the console never binds :443.
+# No trailing newline -- ubnt-tools uses the value as an array subscript.
+printf '%s' "$APP_MODEL" > /usr/lib/app_model
+
 # Create eth0 alias to tap0 (requires NET_ADMIN cap & macvlan kernel module loaded on host) 
 if [ ! -d "/sys/devices/virtual/net/eth0" ] && [ -d "/sys/devices/virtual/net/tap0" ]; then
     ip link add name eth0 link tap0 type macvlan
