@@ -38,6 +38,27 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
 
+      # The installer hardcodes /usr/bin/podman and aborts without it. Runner
+      # images are not consistent about this: some ship podman at
+      # /usr/bin/podman, others only at /usr/local/bin/podman. On the latter the
+      # install aborts, no uosserver user is created, and the failure surfaces
+      # two steps later as "cp: cannot stat .../containers/storage/overlay/.".
+      - name: Ensure podman is at /usr/bin/podman
+        run: |
+          set -euo pipefail
+          if [ -x /usr/bin/podman ]; then
+            echo "already at /usr/bin/podman: $(/usr/bin/podman --version)"
+          elif command -v podman >/dev/null 2>&1; then
+            found="$(command -v podman)"
+            echo "podman at $found; linking to /usr/bin/podman"
+            sudo ln -sf "$found" /usr/bin/podman
+          else
+            echo "podman absent; installing"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq podman
+          fi
+          /usr/bin/podman --version
+
       - name: Install UniFi OS Server
         run: |          
           mkdir -p /home/runner/.config/containers
@@ -49,6 +70,18 @@ jobs:
           echo "y" | sudo ./unifi-os-server
         continue-on-error: true
       
+      # The install step cannot fail the job (the installer exits non-zero even
+      # on success, as it cannot start systemd units on a runner), so check the
+      # result explicitly and report it where it happens.
+      - name: Verify install produced container storage
+        run: |
+          set -euo pipefail
+          if [ ! -d /home/uosserver/.local/share/containers/storage ]; then
+            echo "Install did not produce container storage." >&2
+            echo "See the 'Install UniFi OS Server' step above for the real error." >&2
+            exit 1
+          fi
+
       - name: Get uosserver image for runner
         run: |
           mkdir -p /home/runner/.local/share/containers/storage/overlay
