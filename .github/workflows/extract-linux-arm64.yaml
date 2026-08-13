@@ -38,8 +38,28 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
 
+      - name: Ensure podman is at /usr/bin/podman
+        run: |
+          set -euo pipefail
+          # The installer hardcodes /usr/bin/podman -- having podman merely on
+          # PATH is not enough. Runner images vary: some ship it at
+          # /usr/bin/podman, some elsewhere, some not at all.
+          if [ -x /usr/bin/podman ]; then
+            echo "podman already at /usr/bin/podman: $(/usr/bin/podman --version)"
+          elif command -v podman >/dev/null 2>&1; then
+            found="$(command -v podman)"
+            echo "podman at $found but not /usr/bin/podman; linking."
+            sudo ln -sf "$found" /usr/bin/podman
+            /usr/bin/podman --version
+          else
+            echo "podman missing from runner image; installing."
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq podman
+            /usr/bin/podman --version
+          fi
+
       - name: Install UniFi OS Server
-        run: |          
+        run: |
           mkdir -p /home/runner/.config/containers
           chmod 755 /home/runner /home/runner/.config /home/runner/.config/containers
           touch /home/runner/.config/containers/storage.conf
@@ -47,7 +67,22 @@ jobs:
           curl -o unifi-os-server "${{ inputs.UOS_DOWNLOAD }}"
           sudo chmod +x unifi-os-server
           echo "y" | sudo ./unifi-os-server
+        # The installer exits non-zero even on success (it cannot start systemd
+        # units on the runner), so its status cannot be trusted -- see the
+        # explicit check below instead.
         continue-on-error: true
+
+      # Without this, a failed install surfaces later as a confusing
+      # "cp: cannot stat .../storage/overlay/." from the copy step.
+      - name: Verify install produced container storage
+        run: |
+          set -euo pipefail
+          if [ ! -d /home/uosserver/.local/share/containers/storage/overlay ]; then
+            echo "UniFi OS Server install did not produce container storage." >&2
+            echo "Check the 'Install UniFi OS Server' step above for the real error." >&2
+            exit 1
+          fi
+          echo "Container storage present."
       
       - name: Get uosserver image for runner
         run: |
