@@ -79,8 +79,12 @@ jobs:
           set -euo pipefail
           src=/home/uosserver/.local/share/containers/storage
           if [ ! -d "$src" ]; then
+            echo "Container storage not at $src. Searching:" >&2
+            sudo find / -xdev -type d -name storage -path '*containers*' 2>/dev/null | head -20 >&2
+            echo "--- /home ---" >&2; sudo ls -la /home 2>&1 | head -10 >&2
+            echo "--- uosserver home ---" >&2; sudo ls -laR /home/uosserver 2>&1 | head -40 >&2
+            echo "--- /var/lib/uosserver ---" >&2; sudo ls -la /var/lib/uosserver 2>&1 | head -20 >&2
             echo "UniFi OS Server install did not produce container storage." >&2
-            echo "Check the 'Install UniFi OS Server' step above for the real error." >&2
             exit 1
           fi
           echo "Container storage present. Driver directories:"
