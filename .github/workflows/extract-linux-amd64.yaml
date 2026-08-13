@@ -73,25 +73,28 @@ jobs:
         continue-on-error: true
 
       # Without this, a failed install surfaces later as a confusing
-      # "cp: cannot stat .../storage/overlay/." from the copy step.
+      # "cp: cannot stat .../storage/..." from the copy step.
       - name: Verify install produced container storage
         run: |
           set -euo pipefail
-          if [ ! -d /home/uosserver/.local/share/containers/storage/overlay ]; then
+          src=/home/uosserver/.local/share/containers/storage
+          if [ ! -d "$src" ]; then
             echo "UniFi OS Server install did not produce container storage." >&2
             echo "Check the 'Install UniFi OS Server' step above for the real error." >&2
             exit 1
           fi
-          echo "Container storage present."
+          echo "Container storage present. Driver directories:"
+          sudo ls -1 "$src"
       
+      # Copy the whole storage tree rather than hardcoded overlay* directories.
+      # The driver depends on the podman version the runner happens to ship
+      # (overlay vs vfs), and naming the driver explicitly breaks whenever the
+      # runner image changes.
       - name: Get uosserver image for runner
         run: |
-          mkdir -p /home/runner/.local/share/containers/storage/overlay
-          sudo cp -a /home/uosserver/.local/share/containers/storage/overlay/. /home/runner/.local/share/containers/storage/overlay/
-          mkdir -p /home/runner/.local/share/containers/storage/overlay-images
-          sudo cp -a /home/uosserver/.local/share/containers/storage/overlay-images/. /home/runner/.local/share/containers/storage/overlay-images/
-          mkdir -p /home/runner/.local/share/containers/storage/overlay-layers
-          sudo cp -a /home/uosserver/.local/share/containers/storage/overlay-layers/. /home/runner/.local/share/containers/storage/overlay-layers/
+          set -euo pipefail
+          mkdir -p /home/runner/.local/share/containers/storage
+          sudo cp -a /home/uosserver/.local/share/containers/storage/. /home/runner/.local/share/containers/storage/
           sudo chown -R runner:runner /home/runner/.local/share/containers/storage
           podman images
 
