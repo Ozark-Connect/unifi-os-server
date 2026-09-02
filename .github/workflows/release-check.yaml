@@ -131,10 +131,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Dockerfile
-          git commit -m "Update UniFi OS Server to $UOS_VERSION"
-          # Rebase onto any concurrent main updates before pushing.
-          git pull --rebase origin main
-          git push origin main
+          # When Ubiquiti promotes the identical EA binary, the base image tag
+          # and APP_VERSION are already pinned by the earlier bump, so there is
+          # nothing to commit. Treat that as a no-op instead of failing the job.
+          if git diff --cached --quiet; then
+            echo "Dockerfile already at $UOS_VERSION / $PODMAN_IMAGE_TAG; no bump needed."
+          else
+            git commit -m "Update UniFi OS Server to $UOS_VERSION"
+            # Rebase onto any concurrent main updates before pushing.
+            git pull --rebase origin main
+            git push origin main
+          fi
           echo "BUMP_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Create release
