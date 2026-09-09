@@ -1,9 +1,9 @@
-FROM ghcr.io/ozark-connect/uosserver:7562a085048e-multiarch
+FROM ghcr.io/ozark-connect/uosserver:c9603dec9010-multiarch
 
 LABEL org.opencontainers.image.source="https://github.com/Ozark-Connect/unifi-os-server"
 
 ENV container="docker"
-ENV APP_VERSION="5.1.40"
+ENV APP_VERSION="5.1.42"
 ENV APP_MODEL="UOSSERVER"
 ENV PRODUCT_NAME="UniFi OS Server"
 
