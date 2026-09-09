@@ -2,6 +2,19 @@ name: Check for new releases
 
 on:
   workflow_dispatch:
+    inputs:
+      UOS_VERSION:
+        description: "Version to publish, e.g. 5.1.42. Leave blank to auto-detect from the API."
+        required: false
+        type: string
+      UOS_DOWNLOAD_AMD64:
+        description: "linux-x64 download URL (required when UOS_VERSION is set)"
+        required: false
+        type: string
+      UOS_DOWNLOAD_ARM64:
+        description: "linux-arm64 download URL (required when UOS_VERSION is set)"
+        required: false
+        type: string
   schedule:
     - cron: "27 * * * *"
 
@@ -33,7 +46,33 @@ jobs:
       
       - name: Extract version and download url for amd64
         id: version
+        env:
+          # Passed via env, never interpolated into the script body, so a
+          # dispatch input cannot inject shell.
+          MANUAL_VERSION: ${{ inputs.UOS_VERSION }}
+          MANUAL_AMD64: ${{ inputs.UOS_DOWNLOAD_AMD64 }}
+          MANUAL_ARM64: ${{ inputs.UOS_DOWNLOAD_ARM64 }}
         run: |
+          # Ubiquiti does not always index a build in the firmware API before
+          # it ships (RC builds in particular). Allow a manual dispatch to
+          # supply the version and URLs so it can still be published as a
+          # normal release.
+          if [ -n "${MANUAL_VERSION:-}" ]; then
+            if [ -z "${MANUAL_AMD64:-}" ] || [ -z "${MANUAL_ARM64:-}" ]; then
+              echo "UOS_VERSION was supplied but one or both download URLs are missing." >&2
+              exit 1
+            fi
+            UOS_VERSION="${MANUAL_VERSION#v}"
+            echo "Manual override: publishing ${UOS_VERSION}"
+            echo "Manual override: publishing \`${UOS_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+
+            echo "UOS_VERSION=$UOS_VERSION" >> "$GITHUB_ENV"
+            echo "UOS_VERSION=$UOS_VERSION" >> "$GITHUB_OUTPUT"
+            echo "UOS_DOWNLOAD_AMD64=$MANUAL_AMD64" >> "$GITHUB_OUTPUT"
+            echo "UOS_DOWNLOAD_ARM64=$MANUAL_ARM64" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Check that there are firmware entries
           if [ "$(jq '._embedded.firmware | length' linux-amd64.json)" -eq 0 ]; then
             echo "No firmware entries found" >&2
