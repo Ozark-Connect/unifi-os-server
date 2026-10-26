@@ -3,6 +3,7 @@ services:
   unifi-os-server:
     image: ghcr.io/ozark-connect/unifi-os-server:latest
     container_name: unifi-os-server
+    hostname: unifi-os-server
     cgroup: host
     cap_add:
       - NET_RAW
