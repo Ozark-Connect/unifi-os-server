@@ -113,8 +113,47 @@ if { [ -f "$SYS_VENDOR" ] && grep -q "Synology" "$SYS_VENDOR"; } \
     echo "Synology patches applied!"
 fi
 
+# 6.0 renumbered the postgres user (UID 10100 -> 100). Clusters created by an
+# older image are then owned by a UID that no longer exists, and
+# postgresql@14-main refuses to start, which takes unifi-core and Network down
+# with it. Hand orphaned files back to postgres.
+for PG_DIR in /data/postgresql /var/log/postgresql; do
+    if [ -d "$PG_DIR" ]; then
+        find "$PG_DIR" -nouser -exec chown -h postgres:postgres {} +
+    fi
+done
+
+# 6.0 moved the Network data dir from /var/lib/unifi to /data/unifi/data
+# (UNIFI_DATA_DIR in /etc/default/unifi) and ships no migration, so an upgraded
+# container starts Network on an empty DB. Copy the old data over once. The
+# copy leaves /var/lib/unifi intact, so rolling back to 5.x still works.
+LEGACY_UNIFI_DATA_DIR="/var/lib/unifi"
+UNIFI_DATA_DIR=$(. /etc/default/unifi 2>/dev/null; echo "${UNIFI_DATA_DIR:-$LEGACY_UNIFI_DATA_DIR}")
+if [ "$UNIFI_DATA_DIR" != "$LEGACY_UNIFI_DATA_DIR" ] \
+    && [ -f "$LEGACY_UNIFI_DATA_DIR/db/version" ] \
+    && [ ! -f "$UNIFI_DATA_DIR/db/version" ]; then
+    echo "Migrating Network data from $LEGACY_UNIFI_DATA_DIR to $UNIFI_DATA_DIR..."
+    # A start without this migration leaves an empty DB behind; keep it aside.
+    if [ -e "$UNIFI_DATA_DIR" ]; then
+        mv "$UNIFI_DATA_DIR" "$UNIFI_DATA_DIR.pre-migration-$(date +%Y%m%d%H%M%S)"
+    fi
+    mkdir -p "$(dirname "$UNIFI_DATA_DIR")"
+    rm -rf "$UNIFI_DATA_DIR.tmp"
+    if cp -a "$LEGACY_UNIFI_DATA_DIR" "$UNIFI_DATA_DIR.tmp" \
+        && mv "$UNIFI_DATA_DIR.tmp" "$UNIFI_DATA_DIR"; then
+        echo "Network data migrated!"
+    else
+        # Stop here rather than let Network initialise an empty DB.
+        echo "Network data migration failed"
+        exit 1
+    fi
+fi
+if [ ! -d "$UNIFI_DATA_DIR" ]; then
+    install -d -o unifi -g unifi "$UNIFI_DATA_DIR"
+fi
+
 # Set UOS_SYSTEM_IP
-UNIFI_SYSTEM_PROPERTIES="/var/lib/unifi/system.properties"
+UNIFI_SYSTEM_PROPERTIES="$UNIFI_DATA_DIR/system.properties"
 if [ -n "${UOS_SYSTEM_IP+1}" ]; then
     echo "Setting UOS_SYSTEM_IP to $UOS_SYSTEM_IP"
     if [ ! -f "$UNIFI_SYSTEM_PROPERTIES" ]; then
