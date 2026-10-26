@@ -152,6 +152,37 @@ if [ ! -d "$UNIFI_DATA_DIR" ]; then
     install -d -o unifi -g unifi "$UNIFI_DATA_DIR"
 fi
 
+# Apps updated in-app (e.g. a newer Network than the image bundles) are cached
+# in /persistent/dpkg/<codename>, and ubnt-dpkg-restore reinstalls them on
+# every start. 6.0 moved the base OS from bullseye to trixie, so the restore
+# looks in an empty trixie dir, the older bundled Network meets a newer DB and
+# refuses to downgrade it. Carry the cached Ubiquiti apps over once. Only
+# install/unpack actions move: the old distro's dependency debs do not apply.
+DPKG_CACHE_ROOT="/persistent/dpkg"
+DPKG_DISTRO=$(grep '^VERSION=' /etc/os-release | sed 's/[^(]*(\(.*\)[^\)]*).*/\1/')
+DPKG_UBNT_PKGS=$(. /etc/default/ubnt-dpkg-cache 2>/dev/null; echo "$DPKG_CACHE_UBNT_PKGS")
+DPKG_NEW_DIR="$DPKG_CACHE_ROOT/$DPKG_DISTRO"
+if [ -n "$DPKG_DISTRO" ] && [ ! -d "$DPKG_NEW_DIR/actions" ]; then
+    for DPKG_OLD_DIR in "$DPKG_CACHE_ROOT"/*; do
+        if [ "$DPKG_OLD_DIR" = "$DPKG_NEW_DIR" ] || [ ! -d "$DPKG_OLD_DIR/actions" ]; then
+            continue
+        fi
+        for PKG in $DPKG_UBNT_PKGS; do
+            case "$(cat "$DPKG_OLD_DIR/actions/$PKG" 2>/dev/null)" in
+                install|unpack) ;;
+                *) continue ;;
+            esac
+            for DEB in "$DPKG_OLD_DIR/packages/${PKG}"_*.deb; do
+                [ -f "$DEB" ] || continue
+                echo "Carrying cached $(basename "$DEB") from $(basename "$DPKG_OLD_DIR") to $DPKG_DISTRO"
+                mkdir -p "$DPKG_NEW_DIR/actions" "$DPKG_NEW_DIR/packages"
+                cp -n "$DEB" "$DPKG_NEW_DIR/packages/"
+                cp -n "$DPKG_OLD_DIR/actions/$PKG" "$DPKG_NEW_DIR/actions/"
+            done
+        done
+    done
+fi
+
 # Set UOS_SYSTEM_IP
 UNIFI_SYSTEM_PROPERTIES="$UNIFI_DATA_DIR/system.properties"
 if [ -n "${UOS_SYSTEM_IP+1}" ]; then
