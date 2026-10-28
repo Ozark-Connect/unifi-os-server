@@ -46,6 +46,19 @@ Without it, UniFi OS Server discovers no consoles and no unadopted devices, and 
 - **Host firewall:** a reply to a discovery broadcast is a new connection to conntrack, not an established one. If your host drops new inbound traffic on an interface, allow UDP from source port 10001 to the ephemeral ports there, for example `iptables -I INPUT -i <iface> -p udp --sport 10001 --dport 32768:60999 -j ACCEPT`.
 - **Kubernetes:** the manifests do not include the helper yet. Run the same image with `hostNetwork: true` and the `uos-discovery` entrypoint on the node, and point `host.docker.internal` at that node.
 
+## Direct connect to UniFi OS Server itself
+
+The UniFi mobile app connects to a console on the LAN at `https://<console-id>.id.ui.direct` on port 443, and falls back to Ubiquiti's cloud relay when that fails. Hardware consoles register that name; UniFi OS Server never does, and in Docker it reports itself with the container's MAC, so the gateway never creates a record for it either. The discovery helper does not change that.
+
+The fix is a local DNS override for that name plus a reverse proxy that bridges port 443 to the server's 11443. Self-signed certificates are fine. Full walkthrough: [uos-server-mobile-direct](https://github.com/Ozark-Connect/uos-server-mobile-direct).
+
+Your console ID is in the container:
+
+```bash
+docker exec unifi-os-server cat /data/unifi-core/config/http/direct-connect-domain.conf
+# server_name <console-id>.id.ui.direct;
+```
+
 ## Kubernetes
 
 See [kubernetes](https://github.com/Ozark-Connect/unifi-os-server/tree/main/kubernetes)
