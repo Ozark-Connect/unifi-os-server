@@ -46,6 +46,19 @@ Without it, UniFi OS Server discovers no consoles and no unadopted devices, and 
 - **Host firewall:** a reply to a discovery broadcast is a new connection to conntrack, not an established one. If your host drops new inbound traffic on an interface, allow UDP from source port 10001 to the ephemeral ports there, for example `iptables -I INPUT -i <iface> -p udp --sport 10001 --dport 32768:60999 -j ACCEPT`.
 - **Kubernetes:** the manifests do not include the helper yet. Run the same image with `hostNetwork: true` and the `uos-discovery` entrypoint on the node, and point `host.docker.internal` at that node.
 
+## Direct connect to UniFi OS Server itself
+
+UniFi apps reach a console on the LAN at `https://<id>.id.ui.direct`, a name your gateway answers from UniFi Network's client list. UniFi OS Server reports itself with the container's MAC, which matches no client, so no record is ever created for it, and the discovery helper does not change that. Two things make it work:
+
+1. **A Local DNS record** in UniFi Network (or your DNS server) for the server's own domain, pointing at the host's IP. Find the domain with:
+
+   ```bash
+   docker exec unifi-os-server cat /data/unifi-core/config/http/direct-connect-domain.conf
+   # server_name <id>.id.ui.direct;
+   ```
+
+2. **Port 443 on that IP must reach the container's 443.** UniFi OS Server terminates TLS for that name with its own certificate. Publish `443:443`, or, behind a reverse proxy, pass that name through by SNI (TLS passthrough, not termination) to the container's 443 (the compose file publishes it as 11443).
+
 ## Kubernetes
 
 See [kubernetes](https://github.com/Ozark-Connect/unifi-os-server/tree/main/kubernetes)
