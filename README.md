@@ -48,16 +48,16 @@ Without it, UniFi OS Server discovers no consoles and no unadopted devices, and 
 
 ## Direct connect to UniFi OS Server itself
 
-UniFi apps reach a console on the LAN at `https://<id>.id.ui.direct`, a name your gateway answers from UniFi Network's client list. UniFi OS Server reports itself with the container's MAC, which matches no client, so no record is ever created for it, and the discovery helper does not change that. Two things make it work:
+The UniFi mobile app connects to a console on the LAN at `https://<console-id>.id.ui.direct` on port 443, and falls back to Ubiquiti's cloud relay when that fails. Hardware consoles register that name; UniFi OS Server never does, and in Docker it reports itself with the container's MAC, so the gateway never creates a record for it either. The discovery helper does not change that.
 
-1. **A Local DNS record** in UniFi Network (or your DNS server) for the server's own domain, pointing at the host's IP. Find the domain with:
+The fix is a local DNS override for that name plus a reverse proxy that bridges port 443 to the server's 11443. Self-signed certificates are fine. Full walkthrough: [uos-server-mobile-direct](https://github.com/Ozark-Connect/uos-server-mobile-direct).
 
-   ```bash
-   docker exec unifi-os-server cat /data/unifi-core/config/http/direct-connect-domain.conf
-   # server_name <id>.id.ui.direct;
-   ```
+Your console ID is in the container:
 
-2. **Port 443 on that IP must reach the container's 443.** UniFi OS Server terminates TLS for that name with its own certificate. Publish `443:443`, or, behind a reverse proxy, pass that name through by SNI (TLS passthrough, not termination) to the container's 443 (the compose file publishes it as 11443).
+```bash
+docker exec unifi-os-server cat /data/unifi-core/config/http/direct-connect-domain.conf
+# server_name <console-id>.id.ui.direct;
+```
 
 ## Kubernetes
 
