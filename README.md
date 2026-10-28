@@ -32,6 +32,19 @@ docker pull ghcr.io/ozark-connect/unifi-os-server:5.1.21-ea   # a specific EA bu
 
 See [docker-compose.yaml](https://github.com/Ozark-Connect/unifi-os-server/blob/main/docker-compose.yaml)
 
+## Discovery
+
+UniFi OS Server does not scan the network from inside its container. UniFi Core asks a helper on the host, `uos-discovery-client`, at `host.docker.internal:11002`, and the helper sends UniFi discovery (UDP 10001) out of the host's interfaces. Ubiquiti's installer runs it on the host; this image ships the same binary at `/usr/local/bin/uos-discovery`, and the compose file runs it as the `unifi-os-server-discovery` service with `network_mode: host`.
+
+Without it, UniFi OS Server discovers no consoles and no unadopted devices, and features that depend on discovery (direct-connect DNS records for other consoles on the LAN, console stacking) do not work.
+
+- **Required with it:** `extra_hosts: host.docker.internal: host-gateway` on the main service (already in the compose file).
+- **`DISCOVERY_CLIENT_SERVER_HOST`** is the only address the helper's API listens on. Set it to the address `host.docker.internal` resolves to, the `docker0` gateway (`172.17.0.1` unless you changed Docker's `bip`). Do not use `0.0.0.0`: that exposes the API to your LAN.
+- **Do not publish UDP 10001 from the main container.** The helper binds `0.0.0.0:10001` on the host for its passive listener.
+- **Subnets:** discovery is broadcast and multicast, so it reaches only the subnets the host has an interface on. The helper uses every host interface automatically. To discover a console or device on another VLAN, give the host an interface (for example a VLAN sub-interface) on it; otherwise adopt with `set-inform` as below.
+- **Host firewall:** a reply to a discovery broadcast is a new connection to conntrack, not an established one. If your host drops new inbound traffic on an interface, allow UDP from source port 10001 to the ephemeral ports there, for example `iptables -I INPUT -i <iface> -p udp --sport 10001 --dport 32768:60999 -j ACCEPT`.
+- **Kubernetes:** the manifests do not include the helper yet. Run the same image with `hostNetwork: true` and the `uos-discovery` entrypoint on the node, and point `host.docker.internal` at that node.
+
 ## Kubernetes
 
 See [kubernetes](https://github.com/Ozark-Connect/unifi-os-server/tree/main/kubernetes)
@@ -95,6 +108,7 @@ Overrides your detected hardware platform. Accepted values are: `synology`.
 | UDP | 3478 | Both | STUN for device adoption and communication *(also required for Remote Management)* |
 | UDP | 5514 | Ingress | Remote syslog capture |
 | UDP | 10003 | Ingress | Device discovery during adoption |
+| UDP | 10001 | Both | UniFi discovery, on the host through the discovery helper (see [Discovery](#discovery)); not published from the container |
 | TCP | 28082 | Ingress | Device support files download |
 | TCP | 5671 | Ingress | AQMPS |
 | TCP | 8880 | Ingress | Hotspot portal redirection (HTTP) |
@@ -105,7 +119,7 @@ Overrides your detected hardware platform. Accepted values are: `synology`.
 
 ## What is the difference between images?
 
-The `uosserver` image is provided by UniFi, extracted from the installation binary. The `unifi-os-server` image provides better compatibility for Docker and Kubernetes with directory fixes and configuration through environment variables.
+The `uosserver` image is provided by UniFi, extracted from the installation binary, with the installer's discovery helper added at `/usr/local/bin/uos-discovery`. The `unifi-os-server` image provides better compatibility for Docker and Kubernetes with directory fixes and configuration through environment variables.
 
 ## Why does the container need specific settings for cgroup and tmpfs?
 
