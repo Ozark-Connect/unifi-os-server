@@ -43,3 +43,16 @@ services:
       - 8881:8881 # Optional
       - 8882:8882 # Optional
     restart: unless-stopped
+
+  # Device and console discovery: UniFi Core scans the LAN through this helper at
+  # host.docker.internal:11002, so it runs on the host network. See "Discovery" in the README.
+  unifi-os-server-discovery:
+    image: ghcr.io/ozark-connect/unifi-os-server:latest
+    container_name: unifi-os-server-discovery
+    network_mode: host
+    entrypoint: ["/usr/local/bin/uos-discovery"]
+    environment:
+      # The address host.docker.internal resolves to (docker0). Keeps the helper's API off the LAN.
+      - DISCOVERY_CLIENT_SERVER_HOST=172.17.0.1
+      - DISCOVERY_CLIENT_LOG_PATH=/tmp
+    restart: unless-stopped

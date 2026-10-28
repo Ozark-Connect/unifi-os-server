@@ -117,6 +117,18 @@ jobs:
           PODMAN_IMAGE_TAG=$(podman images uosserver --noheading | awk '{print $2}')
           PODMAN_IMAGE_ID=$(podman images uosserver --noheading | awk '{print $3}')
           REPO_OWNER_LC=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
-          podman push $PODMAN_IMAGE_ID $REGISTRY/$REPO_OWNER_LC/uosserver:$PODMAN_IMAGE_TAG-linux-arm64
+
+          # Add the installer's host-side discovery helper (uos-discovery-client). UniFi Core scans
+          # the LAN through it at host.docker.internal:11002; the compose runs it as a host-network
+          # sidecar from this image. unzip exits 1 on the installer's leading ELF bytes, a warning.
+          set -euo pipefail
+          mkdir -p discovery-layer
+          unzip -o -j unifi-os-server discovery -d discovery-layer || [ $? -eq 1 ]
+          test -s discovery-layer/discovery
+          chmod 0755 discovery-layer/discovery
+          printf 'FROM %s\nCOPY discovery /usr/local/bin/uos-discovery\n' "$PODMAN_IMAGE_ID" > discovery-layer/Containerfile
+          podman build -t localhost/uosserver-discovery:build discovery-layer
+
+          podman push localhost/uosserver-discovery:build $REGISTRY/$REPO_OWNER_LC/uosserver:$PODMAN_IMAGE_TAG-linux-arm64
 
           echo "PODMAN_IMAGE_TAG=$PODMAN_IMAGE_TAG" >> "$GITHUB_OUTPUT"
