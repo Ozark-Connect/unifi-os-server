@@ -128,5 +128,22 @@ if [ -n "${UOS_SYSTEM_IP+1}" ]; then
     fi
 fi
 
+# Behind a reverse proxy, nginx sees the proxy's address, and UniFi Core passes
+# it on as X-Forwarded-For, so the audit log records the proxy instead of the
+# client. With UOS_TRUSTED_PROXIES set, nginx takes the client address from
+# X-Forwarded-For on requests from those addresses.
+NGINX_REALIP_CONF="/etc/nginx/uos-realip.conf"
+rm -f "$NGINX_REALIP_CONF"
+if [ -n "${UOS_TRUSTED_PROXIES:-}" ]; then
+    echo "Setting UOS_TRUSTED_PROXIES to $UOS_TRUSTED_PROXIES"
+    {
+        for PROXY in ${UOS_TRUSTED_PROXIES//,/ }; do
+            echo "set_real_ip_from $PROXY;"
+        done
+        echo "real_ip_header X-Forwarded-For;"
+        echo "real_ip_recursive on;"
+    } > "$NGINX_REALIP_CONF"
+fi
+
 # Start systemd
 exec /sbin/init
