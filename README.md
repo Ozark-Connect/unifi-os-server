@@ -93,6 +93,7 @@ udp:
 |----|----|
 | UOS_SYSTEM_IP | Hostname or IP for UniFi OS Server |
 | HARDWARE_PLATFORM | Manually set hardware platform |
+| UOS_TRUSTED_PROXIES | Reverse proxy addresses to take the client IP from |
 
 ### UOS_SYSTEM_IP
 
@@ -108,6 +109,20 @@ Set UniFi OS Server hostname (recommended) or IP address for inform. To adopt de
 ### HARDWARE_PLATFORM
 
 Overrides your detected hardware platform. Accepted values are: `synology`.
+
+### UOS_TRUSTED_PROXIES
+
+Behind a reverse proxy (Traefik, Caddy, nginx), the audit log and the System Log record the proxy's address for every login and access, not the client's. Set `UOS_TRUSTED_PROXIES` to the addresses or CIDRs your proxy connects from, separated by commas or spaces. nginx in the container then takes the client IP from the proxy's `X-Forwarded-For` header on requests from those addresses only.
+
+```yaml
+environment:
+  - UOS_TRUSTED_PROXIES=172.24.0.1
+```
+
+- **Which address:** the source IP nginx sees, not the proxy's LAN IP. Check the `ip=` field in `/data/unifi-core/logs/nginx-access.log`. A proxy on the host network that connects to a published port arrives from the gateway of the container's Docker network.
+- **Proxy chains:** if your proxy forwards a client IP from an upstream proxy (for example Cloudflare), list that proxy's ranges too.
+- **Trust only your proxy.** Any address in the list can set an arbitrary client IP.
+- **Unset:** no change from stock behavior.
 
 ## Ports
 

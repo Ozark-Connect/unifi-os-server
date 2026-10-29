@@ -9,6 +9,11 @@ ENV PRODUCT_NAME="UniFi OS Server"
 
 STOPSIGNAL SIGRTMIN+3
 
+# Optional realip config, written by the entrypoint from UOS_TRUSTED_PROXIES.
+# The [.] glob lets nginx start when the file does not exist.
+RUN sed -i 's|^    merge_slashes off;|&\n    include /etc/nginx/uos-realip[.]conf;|' /etc/nginx/nginx.conf \
+    && grep -q 'uos-realip' /etc/nginx/nginx.conf
+
 COPY uos-entrypoint.sh /root/uos-entrypoint.sh
 
 RUN ["chmod", "+x", "/root/uos-entrypoint.sh"]
