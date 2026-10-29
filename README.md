@@ -120,6 +120,16 @@ environment:
 ```
 
 - **Which address:** the source IP nginx sees, not the proxy's LAN IP. Check the `ip=` field in `/data/unifi-core/logs/nginx-access.log`. A proxy on the host network that connects to a published port arrives from the gateway of the container's Docker network.
+- **Pin that network's subnet.** Docker picks the subnet when it creates the network, so a `docker compose down` can move the gateway. nginx then sees an address it does not trust and logs the proxy again. Pin it in your compose file and trust the gateway:
+
+  ```yaml
+  networks:
+    default:
+      ipam:
+        config:
+          - subnet: 172.24.0.0/16
+            gateway: 172.24.0.1
+  ```
 - **Proxy chains:** if your proxy forwards a client IP from an upstream proxy (for example Cloudflare), list that proxy's ranges too.
 - **Trust only your proxy.** Any address in the list can set an arbitrary client IP.
 - **Unset:** no change from stock behavior.
