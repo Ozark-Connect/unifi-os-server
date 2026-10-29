@@ -131,7 +131,10 @@ fi
 # Behind a reverse proxy, nginx sees the proxy's address, and UniFi Core passes
 # it on as X-Forwarded-For, so the audit log records the proxy instead of the
 # client. With UOS_TRUSTED_PROXIES set, nginx takes the client address from
-# X-Forwarded-For on requests from those addresses.
+# X-Forwarded-For on requests from those addresses. unifi-core's pre-start hook
+# copies nginx.conf.disabled over nginx.conf on every start, so the include
+# goes into nginx.conf.disabled.
+NGINX_CONF="/etc/nginx/nginx.conf.disabled"
 NGINX_REALIP_CONF="/etc/nginx/uos-realip.conf"
 rm -f "$NGINX_REALIP_CONF"
 if [ -n "${UOS_TRUSTED_PROXIES:-}" ]; then
@@ -143,6 +146,12 @@ if [ -n "${UOS_TRUSTED_PROXIES:-}" ]; then
         echo "real_ip_header X-Forwarded-For;"
         echo "real_ip_recursive on;"
     } > "$NGINX_REALIP_CONF"
+    if ! grep -q "uos-realip" "$NGINX_CONF"; then
+        sed -i 's|^\( *\)include \+/etc/nginx/mime.types;|&\n\1include /etc/nginx/uos-realip[.]conf;|' "$NGINX_CONF"
+    fi
+    if ! grep -q "uos-realip" "$NGINX_CONF"; then
+        echo "UOS_TRUSTED_PROXIES not applied: no mime.types include in $NGINX_CONF"
+    fi
 fi
 
 # Start systemd
