@@ -224,7 +224,7 @@ if [ -n "${UOS_TRUSTED_PROXIES:-}" ]; then
     fi
 fi
 
-# Network 11.0.81-11.0.97 and UniFi Core call each other in a loop through core
+# Network 11.0.81-11.0.99 and UniFi Core call each other in a loop through core
 # GET /api/system, which fills Network's connection pool to core and stalls the
 # Network API for 40 s several times a day. patch-core-features.py patches core
 # while the installed Network is affected and restores the stock service.js

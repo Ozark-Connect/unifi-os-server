@@ -137,7 +137,7 @@ environment:
 
 ### UOS_FEATURES_LOOP_PATCH
 
-Network 11.0.81 through 11.0.97 and UniFi Core call each other in a loop: Network refreshes its system info through core `GET /api/system`, and core answers by fetching Network's features, which calls core again. The loop fills Network's connection pool to core, and most of the Network API stalls for 40 s several times a day.
+Network 11.0.81 through 11.0.99 and UniFi Core call each other in a loop: Network refreshes its system info through core `GET /api/system`, and core answers by fetching Network's features, which calls core again. The loop fills Network's connection pool to core, and most of the Network API stalls for 40 s several times a day.
 
 The container patches core's features fetch to serve the last value and refresh it in the background, so `/api/system` never waits on Network.
 

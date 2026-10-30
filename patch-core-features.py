@@ -26,10 +26,11 @@ SERVICE_JS = "/usr/share/unifi-core/app/service.js"
 ORIG_SUFFIX = ".features-loop.orig"
 MARKER = "/*uos-features-loop-patch*/"
 
-# Network versions with the 5-deep loop (verified on gateways and UOS Server).
-# Raise AFFECTED_MAX only after checking ipc.log burst depth on the new version.
+# Network versions with the 5-deep loop (11.0.81-11.0.97 verified on gateways and UOS
+# Server; 11.0.99 by decompile: cache adapter and RestTemplate unchanged from 11.0.97).
+# Raise AFFECTED_MAX only after checking ipc.log burst depth or Network's cache code.
 AFFECTED_MIN = (11, 0, 81)
-AFFECTED_MAX = (11, 0, 97)
+AFFECTED_MAX = (11, 0, 99)
 
 # Stock CQe, matched by structure. Minified names are captured, not hard-coded.
 PATTERN = re.compile(
