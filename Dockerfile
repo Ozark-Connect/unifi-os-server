@@ -10,6 +10,7 @@ ENV PRODUCT_NAME="UniFi OS Server"
 STOPSIGNAL SIGRTMIN+3
 
 COPY uos-entrypoint.sh /root/uos-entrypoint.sh
+COPY patch-core-features.py /root/patch-core-features.py
 
-RUN ["chmod", "+x", "/root/uos-entrypoint.sh"]
+RUN ["chmod", "+x", "/root/uos-entrypoint.sh", "/root/patch-core-features.py"]
 ENTRYPOINT ["/root/uos-entrypoint.sh"]

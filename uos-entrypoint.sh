@@ -224,5 +224,38 @@ if [ -n "${UOS_TRUSTED_PROXIES:-}" ]; then
     fi
 fi
 
+# Network 11.0.81-11.0.97 and UniFi Core call each other in a loop through core
+# GET /api/system, which fills Network's connection pool to core and stalls the
+# Network API for 40 s several times a day. patch-core-features.py patches core
+# while the installed Network is affected and restores the stock service.js
+# otherwise. It runs here, before core starts, and again from a watcher when an
+# in-app update changes the Network version or service.js. The patched file
+# lives in the container's writable layer, so the opt-out reverts it.
+CORE_JS="/usr/share/unifi-core/app/service.js"
+core_patch_state() {
+    echo "$(dpkg-query -W -f='${Version}' unifi 2>/dev/null) $(md5sum "$CORE_JS" 2>/dev/null | cut -d' ' -f1)"
+}
+if [ "${UOS_FEATURES_LOOP_PATCH:-true}" = "false" ]; then
+    python3 /root/patch-core-features.py --revert
+else
+    python3 /root/patch-core-features.py
+    (
+        # Empty, so the first pass catches the cached Network that
+        # ubnt-dpkg-restore reinstalls during startup.
+        LAST_CORE_STATE=""
+        while true; do
+            sleep 30
+            CORE_STATE=$(core_patch_state)
+            [ "$CORE_STATE" = "$LAST_CORE_STATE" ] && continue
+            python3 /root/patch-core-features.py
+            if [ $? -eq 10 ]; then
+                echo "service.js changed, restarting unifi-core"
+                systemctl restart unifi-core
+            fi
+            LAST_CORE_STATE=$(core_patch_state)
+        done
+    ) &
+fi
+
 # Start systemd
 exec /sbin/init

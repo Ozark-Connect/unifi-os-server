@@ -94,6 +94,7 @@ udp:
 | UOS_SYSTEM_IP | Hostname or IP for UniFi OS Server |
 | HARDWARE_PLATFORM | Manually set hardware platform |
 | UOS_TRUSTED_PROXIES | Reverse proxy addresses to take the client IP from |
+| UOS_FEATURES_LOOP_PATCH | Set to `false` to disable the UniFi Core features-loop patch |
 
 ### UOS_SYSTEM_IP
 
@@ -133,6 +134,17 @@ environment:
 - **Proxy chains:** if your proxy forwards a client IP from an upstream proxy (for example Cloudflare), list that proxy's ranges too.
 - **Trust only your proxy.** Any address in the list can set an arbitrary client IP.
 - **Unset:** no change from stock behavior.
+
+### UOS_FEATURES_LOOP_PATCH
+
+Network 11.0.81 through 11.0.97 and UniFi Core call each other in a loop: Network refreshes its system info through core `GET /api/system`, and core answers by fetching Network's features, which calls core again. The loop fills Network's connection pool to core, and most of the Network API stalls for 40 s several times a day.
+
+The container patches core's features fetch to serve the last value and refresh it in the background, so `/api/system` never waits on Network.
+
+- **Version-gated:** the patch applies only while the installed Network is in the affected range. On any other version, or if the stock function is not found, the stock `service.js` is restored. A Network update that fixes the loop removes the patch without an image update.
+- **In-app updates:** a watcher re-checks every 30 s after a Network or `unifi-core` update and restarts `unifi-core` when it changes `service.js`.
+- **Check:** `docker exec unifi-os-server grep -c uos-features-loop-patch /usr/share/unifi-core/app/service.js` prints `1` when patched.
+- **`false`:** restores the stock `service.js` on the next start.
 
 ## Ports
 
