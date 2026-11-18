@@ -1,5 +1,8 @@
 name: Check for new EA releases
 
+# Manual dispatch only. Ubiquiti no longer publishes EA builds to a firmware
+# API channel, so the hourly schedule found nothing. EA builds arrive as direct
+# fw-download.ubnt.com links: pass them as UOS_VERSION + the two URLs.
 on:
   workflow_dispatch:
     inputs:
@@ -15,8 +18,6 @@ on:
         description: "linux-arm64 download URL (required when UOS_VERSION is set)"
         required: false
         type: string
-  schedule:
-    - cron: "47 * * * *"
 
 # The Ozark-Connect org enforces a read-only default GITHUB_TOKEN, so grant
 # the scopes the reusable extract/build jobs and the release job need.
