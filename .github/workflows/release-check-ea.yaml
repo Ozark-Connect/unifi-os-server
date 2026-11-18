@@ -1,7 +1,7 @@
 name: Check for new EA releases
 
-# Manual dispatch only. Ubiquiti no longer publishes EA builds to a firmware
-# API channel, so the hourly schedule found nothing. EA builds arrive as direct
+# Manual dispatch only. Ubiquiti does not publish EA builds to a public
+# firmware API channel, so a schedule finds nothing. EA builds arrive as direct
 # fw-download.ubnt.com links: pass them as UOS_VERSION + the two URLs.
 on:
   workflow_dispatch:
